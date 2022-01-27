@@ -1,17 +1,18 @@
+import numpy as np
 import random
 
 
 def get_random_sample(radius, seedX, seedY):
-    theta = 2 * numpy.pi * random.random()
-    x = int(radius * numpy.cos(theta)) + seedX
-    y = int(radius * numpy.sin(theta)) + seedY
+    theta = 2 * np.pi * random.random()
+    x = int(radius * np.cos(theta)) + seedX
+    y = int(radius * np.sin(theta)) + seedY
     return (x, y)
 
 
 def check_neighbours(location, size, matrix):
-	found_friend = False #found another particle
-	exit_circle = False #reached the required radius
-	near_edge=False #near the edge of the field
+	found_friend = False
+	exit_circle = False
+	near_edge = False
 	
 	
     # Check if a walker is near the edge
@@ -27,19 +28,19 @@ def check_neighbours(location, size, matrix):
 		if neighborDown == 2:
 			exit_circle = True
 
-		neighborUp=matrix[location[1]-1,location[0]]
-		if neighborUp==1:
-			found_friend=True
-		if neighborUp==2:
-			exit_circle=True
+		neighborUp = matrix[location[1]-1,location[0]]
+		if neighborUp == 1:
+			found_friend = True
+		if neighborUp == 2:
+			exit_circle = True
 
-		neighborRight=matrix[location[1],location[0]+1]
-		if neighborRight==1:
-			found_friend=True
-		if neighborRight==2:
-			exit_circle=True
+		neighborRight = matrix[location[1], location[0]+1]
+		if neighborRight == 1:
+			found_friend = True
+		if neighborRight == 2:
+			exit_circle = True
 
-		neighborLeft=matrix[location[1],location[0]-1]
+		neighborLeft = matrix[location[1], location[0]-1]
 		if neighborLeft==1:
 			found_friend=True
 		if neighborLeft==2:

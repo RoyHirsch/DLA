@@ -1,3 +1,4 @@
+import time
 import copy
 import os
 import random
@@ -110,7 +111,10 @@ def get_dla_shape(radius, is_gif, folder_name='images', sample_name='test', save
     return counter, matrix
 
 
-def get_dla_shape_hist(radius, is_gif, folder_name='images', sample_name='test', dpi=70):
+def get_dla_shape_hist(radius, is_gif, folder_name='images', sample_name='test', dpi=70, rev=False):
+    eps = 1e-31
+    inf = 1e+31
+
     if not os.path.isdir(folder_name):
         os.mkdir(folder_name)
 
@@ -161,7 +165,8 @@ def get_dla_shape_hist(radius, is_gif, folder_name='images', sample_name='test',
             if is_found_friend:
                 for i, step in enumerate(path_hist):
                     hist_matrix[step[1]][step[0]] = i**2 + 2
-                    gif_frames.append(add_mets(final_matrix, copy.deepcopy(hist_matrix)))
+                    frame = add_mets(final_matrix, copy.deepcopy(hist_matrix))
+                    gif_frames.append(frame)
 
                 final_matrix[location[1]][location[0]] = 1
                 matrix[location[1]][location[0]] = 1
@@ -179,6 +184,9 @@ def get_dla_shape_hist(radius, is_gif, folder_name='images', sample_name='test',
             complete_cluster = True
 
     if is_gif:
+        if rev:
+            mid = len(gif_frames) // 2
+            gif_frames = gif_frames[mid:] + gif_frames[:mid]
         filename = "{}/frame.png".format(folder_name)
         with imageio.get_writer('{}/movie_{}.gif'.format(folder_name, sample_name), mode='I') as writer:
             for frame in tqdm(gif_frames):
@@ -189,6 +197,7 @@ def get_dla_shape_hist(radius, is_gif, folder_name='images', sample_name='test',
                 plt.close()
 
                 image = imageio.imread(filename)
+                time.sleep(0.005)
                 os.remove(filename)
                 writer.append_data(image)
 
