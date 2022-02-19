@@ -52,7 +52,7 @@ def get_dla_shape(radius, is_gif, folder_name='images', sample_name='test', save
 
         # Set an individual walker out, stop if found a 'friend', give up if it reached the edge of the board
         while not is_found_friend and not is_need_edge:
-            new_loc, is_found_friend, is_need_edge, is_exit = check_neighbours(location, size, matrix)
+            new_loc, is_found_friend, is_need_edge, is_exit = check_neigbours(location, size, matrix)
 
             # Add to the cluster if near a friend
             if is_found_friend:
@@ -112,7 +112,6 @@ def get_dla_shape(radius, is_gif, folder_name='images', sample_name='test', save
 
 
 def get_dla_shape_hist(radius, is_gif, folder_name='images', sample_name='test', dpi=70, rev=False):
-    eps = 1e-31
     inf = 1e+31
 
     if not os.path.isdir(folder_name):
@@ -200,5 +199,110 @@ def get_dla_shape_hist(radius, is_gif, folder_name='images', sample_name='test',
                 time.sleep(0.005)
                 os.remove(filename)
                 writer.append_data(image)
+
+    return counter, matrix
+
+
+def get_dla_shape_init(radius, init_image, is_gif, folder_name='images', sample_name='test', save_pic_interval=100):
+
+    if not os.path.isdir(folder_name):
+        os.mkdir(folder_name)
+
+    size = radius * 2 + 5
+
+    matrix = np.zeros((size, size))
+    time_matrix = np.zeros((size, size))
+    if matrix.shape != init_image.shape:
+        init_image = np.resize(init_image, matrix.shape)
+    
+    matrix += init_image
+    time_matrix += init_image
+
+    x_seeds, y_seeds = np.where(init_image == 1.0)
+    n_seeds = len(x_seeds)
+    for (x_seed, y_seed) in zip(x_seeds, y_seeds):
+        for row in range(0, size):
+            for col in range(0, size):
+                if np.sqrt((x_seed-col)**2 + (y_seed - row)**2) > radius:
+                    matrix[row][col] = 2
+
+    cmap_base = colors.ListedColormap(['black', 'white', 'black'])
+    cmap_jet = plt.get_cmap('jet')
+    cmap_jet.set_under('black')
+    zero_one_cmap = colors.ListedColormap(['black', cmap_jet(-1)])
+
+    random_walkers_count = 0
+    complete_cluster = False
+    counter = 0
+    used_interval = []
+
+    while not complete_cluster:
+        random_walkers_count += 1
+        random.seed()
+        seed_num = random.randint(0, n_seeds - 1)
+        x_seed, y_seed = x_seeds[seed_num], y_seed
+        location = get_random_sample(radius, x_seed, y_seed)
+
+        # Initialize variables, like Friend tag and near edge identifier
+        is_found_friend = False
+        is_need_edge = False
+
+        # Set an individual walker out, stop if found a 'friend', give up if it reached the edge of the board
+        while not is_found_friend and not is_need_edge:
+            new_loc, is_found_friend, is_need_edge, is_exit = check_neighbours(location, size, matrix)
+
+            # Add to the cluster if near a friend
+            if is_found_friend:
+                matrix[location[1]][location[0]] = 1
+                counter += 1
+                time_matrix[location[1]][location[0]] = counter + 1
+
+            else:
+                location = new_loc
+
+        intervalSavePic = range(2, 400000, save_pic_interval)
+        if random_walkers_count in intervalSavePic:
+            print("still working, have added ", random_walkers_count, " random walkers.", " Added to cluster: ", counter)
+        if is_gif:
+            if random_walkers_count in intervalSavePic:
+                used_interval.append(random_walkers_count)
+                plt.xticks([])
+                plt.yticks([])
+                if time_matrix.max() != 1:
+                    plt.imshow(time_matrix, interpolation='nearest', vmin=1.0 / time_matrix.max(), cmap=cmap_jet)
+                else:
+                    plt.imshow(time_matrix, interpolation='nearest', cmap=zero_one_cmap)
+
+                plt.savefig("{}/cluster_{}_{}.png".format(folder_name, sample_name, str(random_walkers_count)), dpi=200)
+                plt.close()
+       
+        if random_walkers_count == 400000:
+            print("Break the cycle, taking too many iterations")
+            complete_cluster = True
+
+        if is_found_friend and is_exit:
+            complete_cluster = True
+
+    plt.matshow(matrix, interpolation='nearest', cmap=cmap_base)
+    plt.xticks([])
+    plt.yticks([])
+    plt.savefig("{}/cluster_{}.png".format(folder_name, sample_name), dpi=200)
+    plt.close()
+
+    plt.matshow(time_matrix, interpolation='nearest', vmin=1.0 / time_matrix.max(), cmap=cmap_jet)
+    plt.xticks([])
+    plt.yticks([])
+    plt.savefig("{}/time_cluster_{}.png".format(folder_name, sample_name), dpi=200)
+    plt.close()
+
+    if is_gif:
+        with imageio.get_writer('{}/movie_{}.gif'.format(folder_name, sample_name), mode='I') as writer:
+            for i in used_interval:
+                filename = "{}/cluster_{}_{}.png".format(folder_name, sample_name, i)
+                image = imageio.imread(filename)
+                writer.append_data(image)
+                os.remove(filename)
+            image = imageio.imread("{}/time_cluster_{}.png".format(folder_name, sample_name))
+            writer.append_data(image)
 
     return counter, matrix
