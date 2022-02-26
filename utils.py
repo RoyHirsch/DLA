@@ -63,11 +63,11 @@ def centralize(bkg_size, inp):
 
     crop = m[hm - h // 2: hm + h // 2, hm - w // 2: hm + w // 2]
     ch, cw = crop.shape
-    h_delta = 1 if ch != h else 0
-    w_delta = 1 if cw != w else 0
+    h_delta = (h - ch) if ch != h else 0
+    w_delta = (w - cw) if cw != w else 0
 
     m[hm - h // 2: hm + h // 2 + h_delta,
-    hm - w // 2: hm + w // 2 + 1 + w_delta] = inp
+    hm - w // 2: hm + w // 2 + w_delta] = inp
     return m
 
 
