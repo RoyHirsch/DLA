@@ -10,3 +10,7 @@ mineral deposits, and dielectric breakdown. For more information see:
 
 ## How to Use ?
 See the following colab: [online dla](/online_dla.ipynb)
+
+
+<img src="https://github.com/RoyHirsch/DLA/blob/main/images/final_grass.png" alt="" width="400"/>
+
