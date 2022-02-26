@@ -1,3 +1,5 @@
+import os.path
+
 import cv2
 import numpy as np
 import matplotlib
@@ -32,6 +34,13 @@ def read_image(file):
     return img
 
 
+def save_image(m, dir, name, dpi=300, cmap='gray', format='jpeg'):
+    full_path = os.path.join(dir, name + '.jpg')
+    plt.figure()
+    imshow(m, cmap)
+    plt.savefig(full_path, format=format, dpi=dpi)
+
+
 def resize(img, out_size):
     h = img.shape[0]
     w = img.shape[1]
@@ -51,7 +60,7 @@ def centralize(bkg_size, inp):
     m = np.zeros((bkg_size, bkg_size))
     h, w = inp.shape
     hm = bkg_size // 2
-    m[hm - h // 2: hm + h // 2, hm - w // 2: hm + w // 2] = inp
+    m[hm - h // 2: hm + h // 2, hm - w // 2: hm + w // 2 + 1] = inp
     return m
 
 
@@ -76,6 +85,11 @@ def get_centralized_init(size):
 
 
 def get_binary_centered_mask(file, mask_size, out_size, blur_kernel=5, threshold1=30, threshold2=50, min_size_blob=40):
+    if mask_size % 2 != 0 or out_size % 2 != 0:
+        raise ValueError('mask_size out_size needs to be even numbers')
+    if mask_size >= out_size:
+        raise ValueError('mask_size should be smaller then out_size')
+
     gray = read_image(file)
 
     blurred = cv2.GaussianBlur(gray, (blur_kernel, blur_kernel), 0)
