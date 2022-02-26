@@ -9,4 +9,4 @@ mineral deposits, and dielectric breakdown. For more information see:
 [Wiki](https://en.wikipedia.org/wiki/Diffusion-limited_aggregatio)
 
 ## How to Use ?
-See the following colab: [online dla](/online_dla.ipyh)
+See the following colab: [online dla](/online_dla.ipynb)
