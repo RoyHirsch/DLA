@@ -1,308 +1,225 @@
-import time
-import copy
 import os
 import random
+import copy
 import imageio
-from matplotlib import colors
 import numpy as np
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from utils import *
+import matplotlib
+matplotlib.use('agg')
+import matplotlib.pyplot as plt
+
+from utils import imshow
 
 
-def get_dla_shape(radius, is_gif, folder_name='images', sample_name='test', save_pic_interval=100):
+N_WALKS_PRINT_INTERVAL = 1000
 
-    if not os.path.isdir(folder_name):
-        os.mkdir(folder_name)
 
-    x_seed = radius + 2
-    y_seed = radius + 2
-    size = radius * 2 + 5
+class BaseDLA():
+    def __init__(self, init_mask, max_particles=None, radius=None, random_walk_policy='edge', log_level=3):
+        self._init_mask = init_mask
+        self._size = init_mask.shape[0]
+        self._center_seed = (self._size // 2, self._size // 2)
+        self._white_list = [(i1, i2) for i1, i2 in zip(*np.where(init_mask != 0.0))]
+        self._initial_white_list = [(i1, i2) for i1, i2 in zip(*np.where(init_mask != 0.0))]
+        self._matrix = copy.deepcopy(init_mask)
 
-    matrix = np.zeros((size, size))
-    time_matrix = np.zeros((size, size))
+        self._max_particles = max_particles if max_particles != None else np.inf
+        self._log_level = log_level
 
-    for row in range(0, size):
-        for col in range(0, size):
-            if row == y_seed and col == x_seed:
-                matrix[row][col] = 1
-                time_matrix[row][col] = 1
-            elif np.sqrt((x_seed-col)**2 + (y_seed - row)**2) > radius:
-                matrix[row][col] = 2
+        self._random_walk_policy = random_walk_policy
+        if self._random_walk_policy == 'edge':
+            self._radius = init_mask.shape[0] // 2
+        else:
+            self._radius = radius if radius != None else init_mask.shape[0] // 2
 
-    cmap_base = colors.ListedColormap(['black', 'white', 'black'])
-    cmap_jet = plt.get_cmap('jet')
-    cmap_jet.set_under('black')
-    zero_one_cmap = colors.ListedColormap(['black', cmap_jet(-1)])
 
-    random_walkers_count = 0
-    complete_cluster = False
-    counter = 0
-    used_interval = []
+    def _get_random_seed(self, point):
+        theta = 2 * np.pi * random.random()
+        x = int(self._radius * np.cos(theta)) + point[0]
+        y = int(self._radius * np.sin(theta)) + point[1]
+        return (x, y)
 
-    while not complete_cluster:
-        random_walkers_count += 1
+    def _get_random_seed_from_radius(self):
+        rand_particle = random.choice(self._white_list)
+        return self._get_random_seed(rand_particle)
+
+    def _get_random_location(self):
+        if self._random_walk_policy == 'edge':
+            curr = self._get_random_seed(self._center_seed)
+        elif self._random_walk_policy == 'radius':
+            curr = self._get_random_seed_from_radius()
+        else:
+            raise ValueError
+        return curr
+
+    def _take_random_step(self, curr):
+        decide = random.random()
+        if decide < 0.25:
+            curr = [curr[0] - 1, curr[1]]
+        elif decide < 0.5:
+            curr = [curr[0] + 1, curr[1]]
+        elif decide < 0.75:
+            curr = [curr[0], curr[1] + 1]
+        else:
+            curr = [curr[0], curr[1] - 1]
+        return curr
+
+    def _is_near_edge(self, curr):
+        if (curr[1] + 1) > self._size - 1 or \
+           (curr[1] - 1) < 1 or \
+           (curr[0] + 1) > self._size - 1 or\
+           (curr[0] - 1) < 1:
+            return True
+        elif np.sqrt((self._center_seed[0] - curr[0])**2 + (self._center_seed[1] - curr[1])**2) > self._size // 2:
+            return True
+        return False
+
+    def _is_intersection(self, curr):
+        if self._matrix[curr[0] + 1, curr[1]] != 0 or \
+           self._matrix[curr[0] - 1, curr[1]] != 0 or \
+           self._matrix[curr[0], curr[1] + 1] != 0 or \
+           self._matrix[curr[0], curr[1] - 1] != 0:
+            return True
+        return False
+
+    def _add_new_particle(self, curr, rank):
+        self._white_list.append(curr)
+        self._matrix[curr[0], curr[1]] = rank
+
+    def grow(self):
         random.seed()
-        location = get_random_sample(radius, x_seed, y_seed)
+        n_particles = 2
+        n_walks = 0
 
-        # Initialize variables, like Friend tag and near edge identifier
-        is_found_friend = False
-        is_need_edge = False
+        while n_particles < self._max_particles:
+            curr = self._get_random_location()
+            n_walks += 1
 
-        # Set an individual walker out, stop if found a 'friend', give up if it reached the edge of the board
-        while not is_found_friend and not is_need_edge:
-            new_loc, is_found_friend, is_need_edge, is_exit = check_neigbours(location, size, matrix)
+            while True:
+                curr = self._take_random_step(curr)
+                if self._is_near_edge(curr):
+                    break
+                if self._is_intersection(curr):
+                    self._add_new_particle(curr, n_particles)
+                    n_particles += 1
+                    break
 
-            # Add to the cluster if near a friend
-            if is_found_friend:
-                matrix[location[1]][location[0]] = 1
+            if self._log_level > 2 and n_walks % N_WALKS_PRINT_INTERVAL == 0:
+                print('Logged {} particles (out of {})'.format(n_particles, self._max_particles))
+
+        if self._log_level > 2:
+            print('Finish grow')
+
+    def save_video(self, dir='', fname='movie.gif', cmap='gray', dpi=200, save_pic_interval=5):
+
+        added_particles = [p for p in self._white_list if p not in self._initial_white_list]
+        m = copy.deepcopy(self._init_mask)
+        with imageio.get_writer(os.path.join(dir, fname) + '.gif', mode='I') as writer:
+            writer.append_data(self.get_matrix_as_image(m, cmap, dpi))
+            plt.close()
+
+            counter = 1
+            for ps in tqdm(self.chunker(added_particles, save_pic_interval)):
                 counter += 1
-                time_matrix[location[1]][location[0]] = counter + 1
+                for p in ps:
+                    m[p[0], p[1]] = counter
 
-            else:
-                location = new_loc
-
-        intervalSavePic = range(2, 400000, save_pic_interval)
-        if random_walkers_count in intervalSavePic:
-            print("still working, have added ", random_walkers_count, " random walkers.", " Added to cluster: ", counter)
-        if is_gif:
-            if random_walkers_count in intervalSavePic:
-                used_interval.append(random_walkers_count)
-                plt.xticks([])
-                plt.yticks([])
-                if time_matrix.max() != 1:
-                    plt.imshow(time_matrix, interpolation='nearest', vmin=1.0 / time_matrix.max(), cmap=cmap_jet)
-                else:
-                    plt.imshow(time_matrix, interpolation='nearest', cmap=zero_one_cmap)
-
-                plt.savefig("{}/cluster_{}_{}.png".format(folder_name, sample_name, str(random_walkers_count)), dpi=200)
-                plt.close()
-       
-        if random_walkers_count == 400000:
-            print("Break the cycle, taking too many iterations")
-            complete_cluster = True
-
-        if is_found_friend and is_exit:
-            complete_cluster = True
-
-    plt.matshow(matrix, interpolation='nearest', cmap=cmap_base)
-    plt.xticks([])
-    plt.yticks([])
-    plt.savefig("{}/cluster_{}.png".format(folder_name, sample_name), dpi=200)
-    plt.close()
-
-    plt.matshow(time_matrix, interpolation='nearest', vmin=1.0 / time_matrix.max(), cmap=cmap_jet)
-    plt.xticks([])
-    plt.yticks([])
-    plt.savefig("{}/time_cluster_{}.png".format(folder_name, sample_name), dpi=200)
-    plt.close()
-
-    if is_gif:
-        with imageio.get_writer('{}/movie_{}.gif'.format(folder_name, sample_name), mode='I') as writer:
-            for i in used_interval:
-                filename = "{}/cluster_{}_{}.png".format(folder_name, sample_name, i)
-                image = imageio.imread(filename)
-                writer.append_data(image)
-                os.remove(filename)
-            image = imageio.imread("{}/time_cluster_{}.png".format(folder_name, sample_name))
-            writer.append_data(image)
-
-    return counter, matrix
-
-
-def get_dla_shape_hist(radius, is_gif, folder_name='images', sample_name='test', dpi=70, rev=False):
-    inf = 1e+31
-
-    if not os.path.isdir(folder_name):
-        os.mkdir(folder_name)
-
-    x_seed = radius + 2
-    y_seed = radius + 2
-    size = radius * 2 + 5
-
-    gif_frames = []
-    matrix = np.zeros((size, size))
-    final_matrix = np.zeros((size, size))
-    time_matrix = np.zeros((size, size))
-
-    for row in range(0, size):
-        for col in range(0, size):
-            if row == y_seed and col == x_seed:
-                final_matrix[row][col] = 1
-                matrix[row][col] = 1
-                time_matrix[row][col] = 1
-            elif np.sqrt((x_seed - col) ** 2 + (y_seed - row) ** 2) > radius:
-                matrix[row][col] = 2
-
-    gif_frames.append(final_matrix)
-    custom_cmap = plt.get_cmap('gray')
-    custom_cmap.set_under('black')
-
-    random_walkers_count = 0
-    complete_cluster = False
-    counter = 1
-    used_interval = []
-
-    while not complete_cluster:
-        random_walkers_count += 1
-        random.seed()
-        location = get_random_sample(radius, x_seed, y_seed)
-
-        # Initialize variables, like Friend tag and near edge identifier
-        is_found_friend = False
-        is_need_edge = False
-        path_hist = []
-        hist_matrix = np.zeros((size, size))
-
-        # Set an individual walker out, stop if found a 'friend', give up if it reached the edge of the board
-        while not is_found_friend and not is_need_edge:
-            new_loc, is_found_friend, is_need_edge, is_exit = check_neighbours(location, size, matrix)
-            path_hist.append(new_loc)
-
-            # Add to the cluster if near a friend
-            if is_found_friend:
-                for i, step in enumerate(path_hist):
-                    hist_matrix[step[1]][step[0]] = i**2 + 2
-                    frame = add_mets(final_matrix, copy.deepcopy(hist_matrix))
-                    gif_frames.append(frame)
-
-                final_matrix[location[1]][location[0]] = 1
-                matrix[location[1]][location[0]] = 1
-                counter += 1
-                time_matrix[location[1]][location[0]] = counter + 1
-
-            else:
-                location = new_loc
-
-        if random_walkers_count == 400000:
-            print("Break the cycle, taking too many iterations")
-            complete_cluster = True
-
-        if is_found_friend and is_exit:
-            complete_cluster = True
-
-    if is_gif:
-        if rev:
-            mid = len(gif_frames) // 2
-            gif_frames = gif_frames[mid:] + gif_frames[:mid]
-        filename = "{}/frame.png".format(folder_name)
-        with imageio.get_writer('{}/movie_{}.gif'.format(folder_name, sample_name), mode='I') as writer:
-            for frame in tqdm(gif_frames):
-                plt.imshow(frame, interpolation='nearest', vmin=1.0 / time_matrix.max(), cmap=custom_cmap)
-                plt.xticks([])
-                plt.yticks([])
-                plt.savefig(filename, dpi=dpi)
+                writer.append_data(self.get_matrix_as_image(m, cmap, dpi))
                 plt.close()
 
-                image = imageio.imread(filename)
-                time.sleep(0.005)
-                os.remove(filename)
-                writer.append_data(image)
+    def save_image(self, dir='', name='pic.jpg', cmap='gray', dpi=1200, is_vector=False):
+        file_suffix = 'svg' if is_vector else 'jpg'
+        full_path = os.path.join(dir, name) + '.' + file_suffix
+        imshow(self.matrix, cmap=cmap)
+        if is_vector:
+            plt.savefig(full_path, format='svg', dpi=dpi)
+        else:
+            plt.savefig(full_path, dpi=dpi)
+        plt.close()
 
-    return counter, matrix
+    @property
+    def matrix(self):
+        return self._matrix
+
+    @property
+    def binary_matrix(self):
+        m = np.zeros_like(self._matrix)
+        m[np.where(self._matrix != 0.0)] = 1.0
+        return m
+
+    @staticmethod
+    def chunker(seq, size):
+        return (seq[pos:pos + size] for pos in range(0, len(seq), size))
+
+    @staticmethod
+    def get_matrix_as_image(m, cmap, dpi):
+        fig = plt.figure(dpi=dpi)
+        imshow(m, cmap=cmap)
+        fig.canvas.draw()
+        data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        return data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
 
 
-def get_dla_shape_init(radius, init_image, is_gif, folder_name='images', sample_name='test', save_pic_interval=100):
+class DLA_PathHist(BaseDLA):
+    def __init__(self, init_mask, max_particles=None, radius=None, random_walk_policy='edge', log_level=3):
+        super().__init__(init_mask, max_particles, radius, random_walk_policy, log_level)
+        self._walks_hist = []
 
-    if not os.path.isdir(folder_name):
-        os.mkdir(folder_name)
+    def _add_new_particle(self, curr, rank, walk_hist):
+        self._white_list.append(curr)
+        self._walks_hist.append(walk_hist)
+        self._matrix[curr[0], curr[1]] = rank
 
-    size = radius * 2 + 5
-
-    matrix = np.zeros((size, size))
-    time_matrix = np.zeros((size, size))
-    if matrix.shape != init_image.shape:
-        init_image = np.resize(init_image, matrix.shape)
-    
-    matrix += init_image
-    time_matrix += init_image
-
-    x_seeds, y_seeds = np.where(init_image == 1.0)
-    n_seeds = len(x_seeds)
-    for (x_seed, y_seed) in zip(x_seeds, y_seeds):
-        for row in range(0, size):
-            for col in range(0, size):
-                if np.sqrt((x_seed-col)**2 + (y_seed - row)**2) > radius:
-                    matrix[row][col] = 2
-
-    cmap_base = colors.ListedColormap(['black', 'white', 'black'])
-    cmap_jet = plt.get_cmap('jet')
-    cmap_jet.set_under('black')
-    zero_one_cmap = colors.ListedColormap(['black', cmap_jet(-1)])
-
-    random_walkers_count = 0
-    complete_cluster = False
-    counter = 0
-    used_interval = []
-
-    while not complete_cluster:
-        random_walkers_count += 1
+    def grow(self):
         random.seed()
-        seed_num = random.randint(0, n_seeds - 1)
-        x_seed, y_seed = x_seeds[seed_num], y_seed
-        location = get_random_sample(radius, x_seed, y_seed)
+        n_particles = 2
+        n_walks = 0
 
-        # Initialize variables, like Friend tag and near edge identifier
-        is_found_friend = False
-        is_need_edge = False
+        while n_particles < self._max_particles:
+            curr = self._get_random_location()
+            walk_hist = [curr]
+            n_walks += 1
 
-        # Set an individual walker out, stop if found a 'friend', give up if it reached the edge of the board
-        while not is_found_friend and not is_need_edge:
-            new_loc, is_found_friend, is_need_edge, is_exit = check_neighbours(location, size, matrix)
+            while True:
+                curr = self._take_random_step(curr)
+                walk_hist.append(curr)
+                if self._is_near_edge(curr):
+                    break
+                if self._is_intersection(curr):
+                    self._add_new_particle(curr, n_particles, walk_hist)
+                    n_particles += 1
+                    break
 
-            # Add to the cluster if near a friend
-            if is_found_friend:
-                matrix[location[1]][location[0]] = 1
-                counter += 1
-                time_matrix[location[1]][location[0]] = counter + 1
+            if self._log_level > 2 and n_walks % N_WALKS_PRINT_INTERVAL == 0:
+                print('Logged {} particles (out of {})'.format(n_particles, self._max_particles))
 
-            else:
-                location = new_loc
+        if self._log_level > 2:
+            print('Finish grow')
 
-        intervalSavePic = range(2, 400000, save_pic_interval)
-        if random_walkers_count in intervalSavePic:
-            print("still working, have added ", random_walkers_count, " random walkers.", " Added to cluster: ", counter)
-        if is_gif:
-            if random_walkers_count in intervalSavePic:
-                used_interval.append(random_walkers_count)
-                plt.xticks([])
-                plt.yticks([])
-                if time_matrix.max() != 1:
-                    plt.imshow(time_matrix, interpolation='nearest', vmin=1.0 / time_matrix.max(), cmap=cmap_jet)
-                else:
-                    plt.imshow(time_matrix, interpolation='nearest', cmap=zero_one_cmap)
+    def save_video(self, dir='', fname='movie.gif', cmap='gray', dpi=200, save_pic_interval=5):
 
-                plt.savefig("{}/cluster_{}_{}.png".format(folder_name, sample_name, str(random_walkers_count)), dpi=200)
-                plt.close()
-       
-        if random_walkers_count == 400000:
-            print("Break the cycle, taking too many iterations")
-            complete_cluster = True
+        def add_mets(org, new):
+            max_val = new.max()
+            locs = np.where(org != 0.0)
+            for loc0, loc1 in zip(locs[0], locs[1]):
+                new[loc0][loc1] = max_val
+            return new
 
-        if is_found_friend and is_exit:
-            complete_cluster = True
+        m = copy.deepcopy(self._init_mask)
+        with imageio.get_writer(os.path.join(dir, fname) + '.gif', mode='I') as writer:
+            writer.append_data(self.get_matrix_as_image(m, cmap, dpi))
+            plt.close()
 
-    plt.matshow(matrix, interpolation='nearest', cmap=cmap_base)
-    plt.xticks([])
-    plt.yticks([])
-    plt.savefig("{}/cluster_{}.png".format(folder_name, sample_name), dpi=200)
-    plt.close()
+            for walk_hist in tqdm(self._walks_hist):
+                walk_mat = np.zeros_like(m)
+                walk_counter = 1
+                for step in walk_hist:
+                    walk_mat[step[0], step[1]] = walk_counter ** 3
+                    walk_counter += 1
+                    writer.append_data(self.get_matrix_as_image(add_mets(m, walk_mat), cmap, dpi))
+                    plt.close()
 
-    plt.matshow(time_matrix, interpolation='nearest', vmin=1.0 / time_matrix.max(), cmap=cmap_jet)
-    plt.xticks([])
-    plt.yticks([])
-    plt.savefig("{}/time_cluster_{}.png".format(folder_name, sample_name), dpi=200)
-    plt.close()
-
-    if is_gif:
-        with imageio.get_writer('{}/movie_{}.gif'.format(folder_name, sample_name), mode='I') as writer:
-            for i in used_interval:
-                filename = "{}/cluster_{}_{}.png".format(folder_name, sample_name, i)
-                image = imageio.imread(filename)
-                writer.append_data(image)
-                os.remove(filename)
-            image = imageio.imread("{}/time_cluster_{}.png".format(folder_name, sample_name))
-            writer.append_data(image)
-
-    return counter, matrix
+                m[step[0], step[1]] = 1.0
+            writer.append_data(self.get_matrix_as_image(m, cmap, dpi))
+            plt.close()

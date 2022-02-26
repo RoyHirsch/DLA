@@ -1,69 +1,85 @@
+import cv2
 import numpy as np
-import random
+import matplotlib
+matplotlib.use('agg')
+import matplotlib.pyplot as plt
+from matplotlib import colors
 
 
-def get_random_sample(radius, seedX, seedY):
-    theta = 2 * np.pi * random.random()
-    x = int(radius * np.cos(theta)) + seedX
-    y = int(radius * np.sin(theta)) + seedY
-    return (x, y)
+def imshow(m, cmap='gray'):
+    if cmap == 'jet':
+        cmap = plt.get_cmap('jet')
+        cmap.set_under('black')
+        plt.xticks([])
+        plt.yticks([])
+        plt.imshow(m, interpolation='nearest', vmin=1.0 / m.max(), cmap=cmap)
+
+    elif cmap == 'bw':
+        cmap = colors.ListedColormap(['black'] + ['white'] * 254)
+        plt.xticks([])
+        plt.yticks([])
+        plt.imshow(m, cmap=cmap)
+
+    else:
+        plt.xticks([])
+        plt.yticks([])
+        plt.imshow(m, cmap=cmap)
 
 
-def check_neighbours(location, size, matrix):
-	found_friend = False
-	exit_circle = False
-	near_edge = False
-	
-	
-    # Check if a walker is near the edge
-	if (location[1] + 1) > size - 1 or (location[1] - 1) < 1 or (location[0] + 1) > size - 1 or (location[0] - 1) < 1:
-		near_edge = True
-
-    # If not near the edge, check if the walker is near a neighbor or reached the required radius
-    # location[1]=row, location[2]=column
-	if not near_edge:
-		neighborDown = matrix[location[1]+1,location[0]]
-		if neighborDown == 1:
-			found_friend = True
-		if neighborDown == 2:
-			exit_circle = True
-
-		neighborUp = matrix[location[1]-1,location[0]]
-		if neighborUp == 1:
-			found_friend = True
-		if neighborUp == 2:
-			exit_circle = True
-
-		neighborRight = matrix[location[1], location[0]+1]
-		if neighborRight == 1:
-			found_friend = True
-		if neighborRight == 2:
-			exit_circle = True
-
-		neighborLeft = matrix[location[1], location[0]-1]
-		if neighborLeft==1:
-			found_friend=True
-		if neighborLeft==2:
-			exit_circle=True
-
-    # After checking locations, if locations are good, start the random walk
-	if not found_friend and not near_edge:
-		decide = random.random()
-		if decide<0.25:
-			location = [location[0] - 1,location[1]]
-		elif decide<0.5:
-			location = [location[0] + 1,location[1]]
-		elif decide<0.75:
-			location = [location[0],location[1] + 1]
-		else:
-			location = [location[0],location[1] - 1]
-
-	return (location, found_friend, near_edge, exit_circle)
+def read_image(file):
+    img = cv2.imread(file)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    return img
 
 
-def add_mets(org, new):
-    max_val = new.max()
-    locs = np.where(org != 0.0)
-    for loc0, loc1 in zip(locs[0], locs[1]):
-        new[loc0][loc1] = max_val
-    return new
+def resize(img, out_size):
+    h = img.shape[0]
+    w = img.shape[1]
+
+    if h > w:
+        ratio = float(out_size) / h
+        w_tag = int(ratio * w)
+        dim = (w_tag, out_size)
+    else:
+        ratio = float(out_size) / w
+        h_tag = int(ratio * h)
+        dim = (out_size, h_tag)
+    return cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
+
+
+def centralize(bkg_size, inp):
+    m = np.zeros((bkg_size, bkg_size))
+    h, w = inp.shape
+    hm = bkg_size // 2
+    m[hm - h // 2: hm + h // 2, hm - w // 2: hm + w // 2] = inp
+    return m
+
+
+def remove_small_blobs(img, min_size_blob=150):
+    nb_components, output, stats, centroids = cv2.connectedComponentsWithStats(img, connectivity=8)
+
+    sizes = stats[1:, -1]
+    nb_components = nb_components - 1
+
+    img = np.zeros((output.shape))
+    for i in range(0, nb_components):
+        if sizes[i] >= min_size_blob:
+            img[output == i + 1] = 255
+    return img
+
+
+def get_centralized_init(size):
+    if size % 2 == 0: size += 1
+    visited = np.zeros((size, size))
+    visited[size//2, size//2] = 1
+    return visited
+
+
+def get_binary_centered_mask(file, mask_size, out_size, blur_kernel=5, threshold1=30, threshold2=50, min_size_blob=40):
+    gray = read_image(file)
+
+    blurred = cv2.GaussianBlur(gray, (blur_kernel, blur_kernel), 0)
+    edge_img = cv2.Canny(blurred, threshold1, threshold2)
+    clean_edge_img = remove_small_blobs(edge_img, min_size_blob)
+    resized = resize(clean_edge_img, mask_size)
+    return centralize(out_size, resized)
