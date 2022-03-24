@@ -1,5 +1,6 @@
-# DLA growing mechnism
-This repository contains code and example for growing DLA-based artificial crystals over natural images.
+# Using DLA-based algorithms for growing artificial clusters that mimic and expend natural shapes
+
+This repository contains code and example for growing DLA-based artificial clusters over natural images.
 
 ## Diffusion-limited aggregation (DLA)
 Diffusion-limited aggregation (DLA) is the process whereby particles undergoing a random walk due to Brownian motion cluster together 
